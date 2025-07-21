@@ -147,7 +147,13 @@ class SAMIntegration:
             if TORCH_AVAILABLE:
                 try:
                     # Use map_location='cpu' to avoid GPU issues on Streamlit Cloud
-                    model_data = torch.load(model_path, map_location='cpu', weights_only=True)
+                    # For newer PyTorch versions, we need to handle the weights_only parameter
+                    try:
+                        model_data = torch.load(model_path, map_location='cpu', weights_only=False)
+                    except TypeError:
+                        # Fallback for older PyTorch versions
+                        model_data = torch.load(model_path, map_location='cpu')
+                    
                     # Basic validation - SAM models should have specific keys
                     if not isinstance(model_data, dict):
                         logger.warning("Model file doesn't contain expected dictionary structure")
