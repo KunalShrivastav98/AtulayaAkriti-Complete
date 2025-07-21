@@ -613,16 +613,21 @@ def main():
                 st.session_state.step = 2
                 st.subheader("🎯 Select Area to Texture")
                 st.info("Click on the area you want to apply texture to (e.g., the wall behind the TV)")
-                # Canvas sizing
+                
+                # Canvas sizing - maintain aspect ratio
                 canvas_height = 400
                 aspect_ratio = image.width / image.height
                 canvas_width = int(canvas_height * aspect_ratio)
+                
+                # Resize image for canvas display while maintaining aspect ratio
+                canvas_image = image.resize((canvas_width, canvas_height), Image.LANCZOS)
+                
                 canvas_result = st_canvas(
                     fill_color="rgba(255, 0, 0, 0.3)",
                     stroke_width=3,
                     stroke_color="red",
-                    background_color="",
-                    background_image=image,
+                    background_color="white",
+                    background_image=canvas_image,
                     update_streamlit=True,
                     height=canvas_height,
                     width=canvas_width,
