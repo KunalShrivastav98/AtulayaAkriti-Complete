@@ -1,21 +1,28 @@
-# AtulayaAkriti Texture Rendering Tool Requirements
-# Core Dependencies
-streamlit==1.28.0
-numpy>=1.24.0,<2.0.0
-opencv-python-headless>=4.8.0,<5.0.0
-Pillow>=10.0.0,<11.0.0
+# AtulayaAkriti - HuggingFace Spaces Requirements
+# Optimized for 16GB RAM environment
+
+# Core Framework
+streamlit>=1.28.0
+
+# AI/ML Core
+torch>=2.0.0
+torchvision>=0.15.0
+segment-anything
+opencv-python-headless>=4.8.0
+
+# Image Processing
+Pillow>=10.0.0
+numpy>=1.24.0
+
+# UI Components (working alternatives to archived canvas)
+st-clickable-images>=0.1.1
+
+# Utilities
 requests>=2.31.0
+beautifulsoup4>=4.12.0
 
-# AI/ML Dependencies - Let Streamlit Cloud handle PyTorch versions
-torch
-torchvision
+# Performance
+psutil
 
-# Streamlit Components - REPLACED: streamlit-drawable-canvas is archived and broken
-# streamlit-drawable-canvas>=0.9.3  # BROKEN on Streamlit Cloud
-st-clickable-images>=0.1.1  # Working alternative for image clicking
-
-# SAM (Segment Anything Model)
-git+https://github.com/facebookresearch/segment-anything.git
-
-# Additional utilities - More flexible versions
-scipy>=1.11.0
+# Optional: Enhanced features for HF Spaces
+gradio>=3.50.0  # Backup UI framework if needed
