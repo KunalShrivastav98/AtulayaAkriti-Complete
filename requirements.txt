@@ -6,9 +6,9 @@ opencv-python-headless==4.8.0.76
 Pillow>=10.0.0
 requests>=2.31.0
 
-# AI/ML Dependencies
-torch>=2.0.0
-torchvision>=0.15.0
+# AI/ML Dependencies - Compatible versions for Streamlit Cloud
+torch==2.0.1
+torchvision==0.15.2
 
 # Streamlit Components
 streamlit-drawable-canvas>=0.9.3

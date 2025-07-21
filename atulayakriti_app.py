@@ -8,14 +8,22 @@ import os
 import requests
 import json
 from typing import Optional, Tuple, List
-import torch
-import torchvision.transforms as transforms
-from streamlit_drawable_canvas import st_canvas
 import logging
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Try to import torch with error handling for Streamlit Cloud
+try:
+    import torch
+    import torchvision.transforms as transforms
+    TORCH_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"PyTorch not available: {e}")
+    TORCH_AVAILABLE = False
+
+from streamlit_drawable_canvas import st_canvas
 
 # Set page config first
 st.set_page_config(
@@ -136,18 +144,22 @@ class SAMIntegration:
                     return False
             
             # Try to load the model to verify it's not corrupted
-            import torch
-            try:
-                # Use map_location='cpu' to avoid GPU issues on Streamlit Cloud
-                model_data = torch.load(model_path, map_location='cpu')
-                # Basic validation - SAM models should have specific keys
-                if not isinstance(model_data, dict):
-                    logger.warning("Model file doesn't contain expected dictionary structure")
+            if TORCH_AVAILABLE:
+                try:
+                    # Use map_location='cpu' to avoid GPU issues on Streamlit Cloud
+                    model_data = torch.load(model_path, map_location='cpu', weights_only=True)
+                    # Basic validation - SAM models should have specific keys
+                    if not isinstance(model_data, dict):
+                        logger.warning("Model file doesn't contain expected dictionary structure")
+                        return False
+                    return True
+                except Exception as e:
+                    logger.warning(f"Model file corrupted or invalid: {e}")
                     return False
+            else:
+                # If torch is not available, just check file size and format
+                logger.info("PyTorch not available, skipping model validation")
                 return True
-            except Exception as e:
-                logger.warning(f"Model file corrupted or invalid: {e}")
-                return False
                 
         except Exception as e:
             logger.warning(f"Error verifying model: {e}")
@@ -216,6 +228,10 @@ class SAMIntegration:
     def load_sam_model(self, model_path: str = None) -> bool:
         """Load SAM model with error handling"""
         try:
+            if not TORCH_AVAILABLE:
+                st.error("❌ PyTorch is not available. Please check your installation.")
+                return False
+                
             # Try to import SAM
             try:
                 from segment_anything import sam_model_registry, SamPredictor
@@ -249,12 +265,14 @@ class SAMIntegration:
             else:
                 model_type = "vit_b"  # Default
 
-            # Load model
+            # Load model with proper error handling
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            self.sam_model = sam_model_registry[model_type](checkpoint=model_path)
-            self.sam_model.to(device=device)
-            self.sam_predictor = SamPredictor(self.sam_model)
-            self.model_loaded = True
+            
+            with st.spinner(f"Loading {model_type} model..."):
+                self.sam_model = sam_model_registry[model_type](checkpoint=model_path)
+                self.sam_model.to(device=device)
+                self.sam_predictor = SamPredictor(self.sam_model)
+                self.model_loaded = True
 
             st.success(f"✅ SAM model loaded successfully! ({model_type} on {device})")
             return True
@@ -615,25 +633,63 @@ def main():
                 st.info("Click on the area you want to apply texture to (e.g., the wall behind the TV)")
                 
                 # Canvas sizing - maintain aspect ratio
-                canvas_height = 400
+                max_canvas_height = 400
+                max_canvas_width = 600
+                
                 aspect_ratio = image.width / image.height
-                canvas_width = int(canvas_height * aspect_ratio)
                 
-                # Resize image for canvas display while maintaining aspect ratio
-                canvas_image = image.resize((canvas_width, canvas_height), Image.LANCZOS)
+                # Calculate optimal canvas dimensions
+                if aspect_ratio > (max_canvas_width / max_canvas_height):
+                    # Image is wider
+                    canvas_width = max_canvas_width
+                    canvas_height = int(canvas_width / aspect_ratio)
+                else:
+                    # Image is taller or square
+                    canvas_height = max_canvas_height
+                    canvas_width = int(canvas_height * aspect_ratio)
                 
+                # Ensure minimum dimensions
+                canvas_width = max(200, min(canvas_width, max_canvas_width))
+                canvas_height = max(150, min(canvas_height, max_canvas_height))
+                
+                # Create canvas image with proper format
+                try:
+                    # Ensure the image is in RGB format
+                    rgb_image = image.convert("RGB")
+                    # Resize with high quality
+                    canvas_image = rgb_image.resize((canvas_width, canvas_height), Image.LANCZOS)
+                    
+                    # Debug info
+                    if debug_mode:
+                        st.write(f"Original image: {image.size}, mode: {image.mode}")
+                        st.write(f"Canvas dimensions: {canvas_width}x{canvas_height}")
+                        st.write(f"Canvas image: {canvas_image.size}, mode: {canvas_image.mode}")
+                        
+                        # Show a small preview to verify the image is correct
+                        col_debug1, col_debug2 = st.columns(2)
+                        with col_debug1:
+                            st.image(canvas_image, caption="Canvas Image Preview", width=150)
+                        with col_debug2:
+                            st.write("✅ Image processed successfully for canvas")
+                    
+                except Exception as e:
+                    st.error(f"Error processing image for canvas: {e}")
+                    canvas_image = Image.new('RGB', (canvas_width, canvas_height), (240, 240, 240))
+                
+                # Create canvas with improved settings
                 canvas_result = st_canvas(
-                    fill_color="rgba(255, 0, 0, 0.3)",
-                    stroke_width=3,
-                    stroke_color="red",
-                    background_color="white",
+                    fill_color="rgba(255, 165, 0, 0.4)",  # Orange fill with transparency
+                    stroke_width=2,
+                    stroke_color="#FF4500",  # Orange red stroke
+                    background_color="#FFFFFF",
                     background_image=canvas_image,
                     update_streamlit=True,
                     height=canvas_height,
                     width=canvas_width,
                     drawing_mode="point",
-                    point_display_radius=5,
-                    key="canvas"
+                    point_display_radius=4,
+                    key="canvas",
+                    display_toolbar=True  # Show toolbar for better UX
                 )
                 # Extract points from canvas and map to image coordinates
                 def map_points_to_image(canvas_points, canvas_size, image_size):
