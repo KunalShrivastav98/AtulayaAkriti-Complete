@@ -658,7 +658,7 @@ def main():
                 canvas_width = max(200, min(canvas_width, max_canvas_width))
                 canvas_height = max(150, min(canvas_height, max_canvas_height))
                 
-                # Create canvas image with proper format
+                # Create canvas image with proper format for streamlit-drawable-canvas
                 try:
                     # Ensure the image is in RGB format
                     rgb_image = image.convert("RGB")
@@ -671,31 +671,29 @@ def main():
                         st.write(f"Canvas dimensions: {canvas_width}x{canvas_height}")
                         st.write(f"Canvas image: {canvas_image.size}, mode: {canvas_image.mode}")
                         
-                        # Show a small preview to verify the image is correct
-                        col_debug1, col_debug2 = st.columns(2)
-                        with col_debug1:
-                            st.image(canvas_image, caption="Canvas Image Preview", width=150)
-                        with col_debug2:
-                            st.write("✅ Image processed successfully for canvas")
+                        # Show a preview to verify the image is correct
+                        st.image(canvas_image, caption="Canvas Image Preview", width=200)
+                    
+                    # Show instruction
+                    st.info("👆 Your image should appear in the canvas above. If it's blank, try refreshing the page.")
                     
                 except Exception as e:
                     st.error(f"Error processing image for canvas: {e}")
                     canvas_image = Image.new('RGB', (canvas_width, canvas_height), (240, 240, 240))
                 
-                # Create canvas with improved settings
+                # Try alternative canvas creation approach
                 canvas_result = st_canvas(
-                    fill_color="rgba(255, 165, 0, 0.4)",  # Orange fill with transparency
+                    fill_color="rgba(255, 165, 0, 0.4)",
                     stroke_width=2,
-                    stroke_color="#FF4500",  # Orange red stroke
-                    background_color="#FFFFFF",
+                    stroke_color="#FF4500",
+                    background_color="white",
                     background_image=canvas_image,
                     update_streamlit=True,
                     height=canvas_height,
                     width=canvas_width,
                     drawing_mode="point",
                     point_display_radius=4,
-                    key="canvas",
-                    display_toolbar=True  # Show toolbar for better UX
+                    key="selection_canvas"  # Changed key to force refresh
                 )
                 # Extract points from canvas and map to image coordinates
                 def map_points_to_image(canvas_points, canvas_size, image_size):
