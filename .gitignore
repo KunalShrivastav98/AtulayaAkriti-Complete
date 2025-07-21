@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+*.pkl
+*.h5
+*.pth
+*.log
+models/*.pth
+models/sam_* 
