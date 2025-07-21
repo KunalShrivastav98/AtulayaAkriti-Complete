@@ -90,7 +90,7 @@ class SAMIntegration:
         self.available_models = self.check_available_models()
 
     def check_available_models(self) -> List[str]:
-        """Check for available SAM model files"""
+        """Check for available SAM model files and verify they're not corrupted"""
         model_files = [
             "sam_vit_b_01ec64.pth",
             "sam_vit_l_0b3195.pth", 
@@ -100,13 +100,61 @@ class SAMIntegration:
 
         available = []
         for model_file in model_files:
-            if os.path.exists(f"models/{model_file}"):
-                available.append(model_file)
+            model_path = f"models/{model_file}"
+            if os.path.exists(model_path):
+                # Verify the model file is not corrupted
+                if self.verify_model_file(model_path):
+                    available.append(model_file)
+                else:
+                    logger.warning(f"Corrupted model file detected: {model_file}")
+                    # Remove corrupted file
+                    try:
+                        os.remove(model_path)
+                        logger.info(f"Removed corrupted file: {model_file}")
+                    except Exception as e:
+                        logger.error(f"Failed to remove corrupted file {model_file}: {e}")
 
         return available
 
+    def verify_model_file(self, model_path: str) -> bool:
+        """Verify that the SAM model file is valid and not corrupted"""
+        try:
+            if not os.path.exists(model_path):
+                return False
+            
+            # Check file size (should be around 375MB for ViT-B)
+            file_size = os.path.getsize(model_path)
+            if file_size < 300_000_000:  # Less than 300MB indicates incomplete download
+                logger.warning(f"Model file incomplete: {file_size / (1024*1024):.1f}MB")
+                return False
+            
+            # Special check for Git LFS pointer files (common on Streamlit Cloud)
+            with open(model_path, 'rb') as f:
+                first_bytes = f.read(100)
+                if b'version https://git-lfs.github.com/spec/v1' in first_bytes:
+                    logger.warning("Detected Git LFS pointer file instead of actual model")
+                    return False
+            
+            # Try to load the model to verify it's not corrupted
+            import torch
+            try:
+                # Use map_location='cpu' to avoid GPU issues on Streamlit Cloud
+                model_data = torch.load(model_path, map_location='cpu')
+                # Basic validation - SAM models should have specific keys
+                if not isinstance(model_data, dict):
+                    logger.warning("Model file doesn't contain expected dictionary structure")
+                    return False
+                return True
+            except Exception as e:
+                logger.warning(f"Model file corrupted or invalid: {e}")
+                return False
+                
+        except Exception as e:
+            logger.warning(f"Error verifying model: {e}")
+            return False
+
     def auto_download_model(self) -> bool:
-        """Auto-download ViT-B model if no models are available"""
+        """Auto-download ViT-B model if no models are available or corrupted"""
         try:
             # Create models directory if it doesn't exist
             os.makedirs("models", exist_ok=True)
@@ -114,7 +162,21 @@ class SAMIntegration:
             model_url = "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth"
             model_filename = "models/sam_vit_b_01ec64.pth"
             
-            st.info("🔄 No SAM models found. Downloading ViT-B model (375MB) for first-time setup...")
+            # Check if file exists and is valid
+            if os.path.exists(model_filename):
+                if self.verify_model_file(model_filename):
+                    st.success("✅ Valid SAM model found!")
+                    self.available_models = self.check_available_models()
+                    return True
+                else:
+                    # Remove corrupted file
+                    try:
+                        os.remove(model_filename)
+                        st.info("🗑️ Removed corrupted model file")
+                    except:
+                        pass
+            
+            st.info("🔄 Downloading SAM ViT-B model (375MB) - this may take a few minutes...")
             
             # Create a progress bar
             progress_bar = st.progress(0)
@@ -170,6 +232,12 @@ class SAMIntegration:
                 else:
                     st.error("❌ No SAM model files found!")
                     return False
+
+            # Verify model file before loading
+            if not self.verify_model_file(model_path):
+                st.error(f"❌ Model file {model_path} is invalid or corrupted!")
+                st.info("💡 Try downloading a fresh model file")
+                return False
 
             # Determine model type
             if "vit_b" in model_path:
@@ -309,11 +377,15 @@ def main():
     if 'sam_integration' not in st.session_state:
         st.session_state.sam_integration = SAMIntegration()
         
-        # Auto-download model if none are available (for Streamlit Cloud)
+        # Force auto-download on Streamlit Cloud (models directory will be empty)
         if not st.session_state.sam_integration.available_models:
-            with st.spinner("Setting up for first-time use..."):
+            st.info("🚀 First-time setup on Streamlit Cloud - downloading SAM model...")
+            with st.spinner("Downloading SAM model (375MB) - this may take 2-3 minutes..."):
                 if st.session_state.sam_integration.auto_download_model():
+                    st.success("✅ Model downloaded successfully! Refreshing app...")
                     st.rerun()  # Refresh the app after download
+                else:
+                    st.error("❌ Failed to download model. Please try refreshing the page.")
 
     # Sidebar
     with st.sidebar:

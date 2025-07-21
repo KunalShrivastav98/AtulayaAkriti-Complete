@@ -6,5 +6,5 @@ __pycache__/
 *.h5
 *.pth
 *.log
-models/*.pth
-models/sam_* 
+models/
+!models/.gitkeep 
