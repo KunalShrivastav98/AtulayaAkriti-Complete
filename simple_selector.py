@@ -4,16 +4,19 @@ from PIL import Image
 import numpy as np
 
 def simple_area_selector(image):
-    """Simple area selection without canvas dependency"""
-    st.subheader("🎯 Select Area to Texture")
+    """Simple area selection without canvas dependency - improved for better UX"""
+    st.subheader("🎯 Select Area to Texture (Alternative Method)")
     
     # Display image for reference
     st.image(image, caption=f"Image Size: {image.size[0]}x{image.size[1]} pixels", use_column_width=True)
     
+    st.info("💡 Since visual canvas selection isn't available, use one of these methods to select the area you want to texture:")
+    
     # Selection method
     method = st.radio(
         "Choose how to select the area:",
-        ["Quick Presets", "Manual Coordinates", "Grid Selection"]
+        ["Quick Presets", "Manual Coordinates", "Grid Selection"],
+        help="Different ways to specify the area you want to apply texture to"
     )
     
     w, h = image.size

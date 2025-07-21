@@ -24,6 +24,14 @@ except ImportError as e:
     logger.warning(f"PyTorch not available: {e}")
     TORCH_AVAILABLE = False
 
+# Try to import canvas with fallback
+try:
+    from streamlit_drawable_canvas import st_canvas
+    CANVAS_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Canvas not available: {e}")
+    CANVAS_AVAILABLE = False
+
 # Set page config first
 st.set_page_config(
     page_title="AtulayaAkriti Texture Rendering Tool",
@@ -647,9 +655,86 @@ def main():
                 if aspect_ratio > (max_canvas_width / max_canvas_height):
                     # Image is wider
                     canvas_width = max_canvas_width
-                # Use simple area selector instead of canvas
-                selected_points = simple_area_selector(image)
+                    canvas_height = int(canvas_width / aspect_ratio)
+                else:
+                    # Image is taller or square
+                    canvas_height = max_canvas_height
+                    canvas_width = int(canvas_height * aspect_ratio)
                 
+                # Ensure minimum dimensions
+                canvas_width = max(200, min(canvas_width, max_canvas_width))
+                canvas_height = max(150, min(canvas_height, max_canvas_height))
+                
+                # Selection method choice
+                selection_method = st.radio(
+                    "Choose selection method:",
+                    ["Canvas Selection (Visual)", "Alternative Methods"],
+                    help="Canvas allows visual clicking on the image. Use Alternative if canvas shows blank."
+                )
+                
+                selected_points = None
+                
+                if selection_method == "Canvas Selection (Visual)" and CANVAS_AVAILABLE:
+                    st.info("👆 Click on the area you want to texture in the canvas below")
+                    
+                    # Create canvas image with better compatibility
+                    try:
+                        # Convert to RGB and resize for canvas
+                        canvas_image = image.convert("RGB").resize((canvas_width, canvas_height), Image.LANCZOS)
+                        
+                        # Debug info
+                        if debug_mode:
+                            st.write(f"Canvas dimensions: {canvas_width}x{canvas_height}")
+                            st.write(f"Image mode: {canvas_image.mode}")
+                        
+                        # Canvas with improved settings for Streamlit Cloud
+                        canvas_result = st_canvas(
+                            fill_color="rgba(255, 165, 0, 0.3)",
+                            stroke_width=3,
+                            stroke_color="#FF4500",
+                            background_color=None,  # Let image show through
+                            background_image=canvas_image,
+                            update_streamlit=True,
+                            height=canvas_height,
+                            width=canvas_width,
+                            drawing_mode="point",
+                            point_display_radius=5,
+                            key="texture_canvas",
+                            display_toolbar=True
+                        )
+                        
+                        # Extract points from canvas
+                        points = []
+                        if canvas_result.json_data is not None:
+                            for obj in canvas_result.json_data["objects"]:
+                                if obj["type"] == "circle":
+                                    # Map canvas coordinates to image coordinates
+                                    canvas_x = obj["left"]
+                                    canvas_y = obj["top"]
+                                    image_x = int(canvas_x * image.width / canvas_width)
+                                    image_y = int(canvas_y * image.height / canvas_height)
+                                    points.append((image_x, image_y))
+                        
+                        if points:
+                            selected_points = points
+                            st.success(f"✅ {len(points)} point(s) selected on canvas")
+                            if debug_mode:
+                                st.write("Canvas points:", points)
+                        else:
+                            st.info("Click on the canvas to select points")
+                            
+                    except Exception as e:
+                        st.error(f"Canvas error: {e}")
+                        st.warning("Canvas failed to load. Please use Alternative Methods below.")
+                        
+                elif selection_method == "Alternative Methods" or not CANVAS_AVAILABLE:
+                    if not CANVAS_AVAILABLE:
+                        st.warning("⚠️ Canvas component not available. Using alternative selection methods.")
+                    
+                    # Use the simple selector as fallback
+                    selected_points = simple_area_selector(image)
+                
+                # Process masks if points are selected
                 if selected_points:
                     st.success(f"✅ {len(selected_points)} point(s) selected")
                     if debug_mode:
