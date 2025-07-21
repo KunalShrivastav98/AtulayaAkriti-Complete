@@ -9,6 +9,7 @@ import requests
 import json
 from typing import Optional, Tuple, List
 import logging
+from simple_selector import simple_area_selector, generate_masks_optimized
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -22,8 +23,6 @@ try:
 except ImportError as e:
     logger.warning(f"PyTorch not available: {e}")
     TORCH_AVAILABLE = False
-
-from streamlit_drawable_canvas import st_canvas
 
 # Set page config first
 st.set_page_config(
@@ -648,149 +647,79 @@ def main():
                 if aspect_ratio > (max_canvas_width / max_canvas_height):
                     # Image is wider
                     canvas_width = max_canvas_width
-                    canvas_height = int(canvas_width / aspect_ratio)
-                else:
-                    # Image is taller or square
-                    canvas_height = max_canvas_height
-                    canvas_width = int(canvas_height * aspect_ratio)
+                # Use simple area selector instead of canvas
+                selected_points = simple_area_selector(image)
                 
-                # Ensure minimum dimensions
-                canvas_width = max(200, min(canvas_width, max_canvas_width))
-                canvas_height = max(150, min(canvas_height, max_canvas_height))
-                
-                # Create canvas image with proper format for streamlit-drawable-canvas
-                try:
-                    # Ensure the image is in RGB format
-                    rgb_image = image.convert("RGB")
-                    # Resize with high quality
-                    canvas_image = rgb_image.resize((canvas_width, canvas_height), Image.LANCZOS)
-                    
-                    # Debug info
+                if selected_points:
+                    st.success(f"✅ {len(selected_points)} point(s) selected")
                     if debug_mode:
-                        st.write(f"Original image: {image.size}, mode: {image.mode}")
-                        st.write(f"Canvas dimensions: {canvas_width}x{canvas_height}")
-                        st.write(f"Canvas image: {canvas_image.size}, mode: {canvas_image.mode}")
-                        
-                        # Show a preview to verify the image is correct
-                        st.image(canvas_image, caption="Canvas Image Preview", width=200)
+                        st.write("Selected points:", selected_points)
                     
-                    # Show instruction
-                    st.info("👆 Your image should appear in the canvas above. If it's blank, try refreshing the page.")
-                    
-                except Exception as e:
-                    st.error(f"Error processing image for canvas: {e}")
-                    canvas_image = Image.new('RGB', (canvas_width, canvas_height), (240, 240, 240))
-                
-                # Try alternative canvas creation approach
-                canvas_result = st_canvas(
-                    fill_color="rgba(255, 165, 0, 0.4)",
-                    stroke_width=2,
-                    stroke_color="#FF4500",
-                    background_color="white",
-                    background_image=canvas_image,
-                    update_streamlit=True,
-                    height=canvas_height,
-                    width=canvas_width,
-                    drawing_mode="point",
-                    point_display_radius=4,
-                    key="selection_canvas"  # Changed key to force refresh
-                )
-                # Extract points from canvas and map to image coordinates
-                def map_points_to_image(canvas_points, canvas_size, image_size):
-                    scale_x = image_size[0] / canvas_size[0]
-                    scale_y = image_size[1] / canvas_size[1]
-                    return [(int(x * scale_x), int(y * scale_y)) for x, y in canvas_points]
-                points = []
-                if canvas_result.json_data is not None:
-                    for obj in canvas_result.json_data["objects"]:
-                        if obj["type"] == "circle":
-                            points.append((int(obj["left"]), int(obj["top"])))
-                if points:
-                    st.success(f"✅ {len(points)} point(s) selected")
-                    if debug_mode:
-                        st.write("Selected points (canvas):", points)
-                    mapped_points = map_points_to_image(points, (canvas_width, canvas_height), image.size)
-                    if debug_mode:
-                        st.write("Mapped points (image):", mapped_points)
                     # Step 2: Show 'Generate Masks' button
-                    if st.button("Generate Masks") or st.session_state.get('step', 1) > 2:
+                    if st.button("🎯 Generate Masks", type="primary") or st.session_state.get('step', 1) > 2:
                         st.session_state.step = 3
                         if not st.session_state.sam_integration.model_loaded:
                             st.error("❌ Please load a SAM model first!")
                         else:
-                            with st.spinner("Processing with SAM..."):
-                                # --- Robust image resizing for SAM ---
-                                orig_size = image.size
-                                max_side = max(image.size)
-                                scale = 1024 / max_side
-                                new_size = (int(image.size[0] * scale), int(image.size[1] * scale))
-                                image_resized = image.convert("RGB").resize(new_size, Image.LANCZOS)
-                                image_np = np.array(image_resized).astype(np.uint8)
-                                # Ensure shape is (H, W, 3)
-                                if image_np.ndim == 2:
-                                    image_np = np.stack([image_np]*3, axis=-1)
-                                elif image_np.shape[2] == 4:
-                                    image_np = image_np[:, :, :3]
-                                # Scale points to resized image
-                                mapped_points_resized = [(int(x * scale), int(y * scale)) for x, y in mapped_points]
-                                masks, scores = st.session_state.sam_integration.generate_masks(image_np, mapped_points_resized)
-                                if masks is not None:
-                                    # Resize masks back to original image size for display
-                                    mask_imgs = []
-                                    for i, mask in enumerate(masks):
-                                        mask_img = Image.fromarray((mask * 255).astype(np.uint8)).resize(orig_size, Image.NEAREST)
-                                        red_overlay = Image.new("RGBA", orig_size, (255, 0, 0, 0))
-                                        mask_alpha = mask_img.point(lambda p: 180 if p > 0 else 0)
-                                        red_overlay.putalpha(mask_alpha)
-                                        preview = Image.alpha_composite(image.convert("RGBA"), red_overlay)
-                                        mask_imgs.append(preview)
-                                    # Store masks, previews, and scores in session state
-                                    st.session_state.masks = masks
-                                    st.session_state.mask_imgs = mask_imgs
-                                    st.session_state.mask_scores = scores
-                                    st.session_state.orig_size = orig_size
-                                    st.session_state.input_image = image
-                                    st.session_state.selected_mask_idx = 0
-                                    st.write("Select the best mask:")
-                    # --- Always show mask selection UI if masks are in session state ---
-                    if (
-                        'masks' in st.session_state and
-                        'mask_imgs' in st.session_state and
-                        st.session_state.masks is not None and
-                        st.session_state.mask_imgs is not None
-                    ):
-                        mask_imgs = st.session_state.mask_imgs
-                        scores = st.session_state.mask_scores
-                        orig_size = st.session_state.orig_size
-                        image = st.session_state.input_image
-                        st.write("Select the best mask:")
-                        cols = st.columns(len(mask_imgs))
-                        for i, col in enumerate(cols):
-                            with col:
-                                st.image(mask_imgs[i], caption=f"Option {i+1} (Score: {scores[i]:.2f})", use_column_width=True)
-                        selected_mask_idx = st.radio(
-                            label="Choose the mask to apply:",
-                            options=list(range(len(mask_imgs))),
-                            format_func=lambda x: f"Option {x+1} (Score: {scores[x]:.2f})",
-                            index=st.session_state.get('selected_mask_idx', 0),
-                            key="mask_radio_group"
-                        )
-                        st.session_state.selected_mask_idx = selected_mask_idx
-                        if st.button("Apply Texture"):
-                            selected_mask = st.session_state.masks[selected_mask_idx]
-                            selected_mask_up = np.array(Image.fromarray((selected_mask * 255).astype(np.uint8)).resize(orig_size, Image.NEAREST)) > 127
-                            st.session_state.selected_mask = selected_mask_up.astype(np.uint8)
-                            st.session_state.selected_image = image
-                            st.session_state.selected_texture_type = texture_type
-                            st.session_state.selected_color_rgb = color_rgb if texture_type == "Solid Color" else (255,255,255)
-                            st.session_state.selected_blend_mode = blend_mode
-                            st.session_state.selected_opacity = opacity
-                            st.session_state.texture = texture if (texture_type != "Solid Color" and (texture is not None or upload_texture_uploaded)) else None
-                            st.session_state.texture_name = texture_name
-                            if texture_type == "Upload Texture/Color" and not upload_texture_uploaded:
-                                st.session_state.upload_color_rgb = upload_color_rgb
-                            st.session_state.step = 4
-                            st.success("Mask selected! Texture will be applied in the Results panel.")
+                            # Use optimized mask generation
+                            masks, mask_imgs, scores = generate_masks_optimized(
+                                st.session_state.sam_integration, 
+                                image, 
+                                selected_points, 
+                                debug_mode
+                            )
+                            
+                            if masks is not None and mask_imgs is not None:
+                                # Store results in session state
+                                st.session_state.masks = masks
+                                st.session_state.mask_imgs = mask_imgs
+                                st.session_state.mask_scores = scores
+                                st.session_state.orig_size = image.size
+                                st.session_state.input_image = image
+                                st.session_state.selected_mask_idx = 0
+                
+                # --- Always show mask selection UI if masks are in session state ---
+                if (
+                    'masks' in st.session_state and
+                    'mask_imgs' in st.session_state and
+                    st.session_state.masks is not None and
+                    st.session_state.mask_imgs is not None
+                ):
+                    mask_imgs = st.session_state.mask_imgs
+                    scores = st.session_state.mask_scores
+                    orig_size = st.session_state.orig_size
+                    image = st.session_state.input_image
+                    
+                    st.subheader("🎭 Select the Best Mask:")
+                    cols = st.columns(len(mask_imgs))
+                    for i, col in enumerate(cols):
+                        with col:
+                            st.image(mask_imgs[i], caption=f"Option {i+1} (Score: {scores[i]:.2f})", use_column_width=True)
+                    
+                    selected_mask_idx = st.radio(
+                        label="Choose the mask to apply:",
+                        options=list(range(len(mask_imgs))),
+                        format_func=lambda x: f"Option {x+1} (Score: {scores[x]:.2f})",
+                        index=st.session_state.get('selected_mask_idx', 0),
+                        key="mask_radio_group"
+                    )
+                    st.session_state.selected_mask_idx = selected_mask_idx
+                    
+                    if st.button("🎨 Apply Texture", type="primary"):
+                        selected_mask = st.session_state.masks[selected_mask_idx]
+                        selected_mask_up = np.array(Image.fromarray((selected_mask * 255).astype(np.uint8)).resize(orig_size, Image.NEAREST)) > 127
+                        st.session_state.selected_mask = selected_mask_up.astype(np.uint8)
+                        st.session_state.selected_image = image
+                        st.session_state.selected_texture_type = texture_type
+                        st.session_state.selected_color_rgb = color_rgb if texture_type == "Solid Color" else (255,255,255)
+                        st.session_state.selected_blend_mode = blend_mode
+                        st.session_state.selected_opacity = opacity
+                        st.session_state.texture = texture if (texture_type != "Solid Color" and (texture is not None or upload_texture_uploaded)) else None
+                        st.session_state.texture_name = texture_name
+                        if texture_type == "Upload Texture/Color" and not upload_texture_uploaded:
+                            st.session_state.upload_color_rgb = upload_color_rgb
+                        st.session_state.step = 4
+                        st.success("Mask selected! Texture will be applied in the Results panel.")
                 else:
                     st.warning("⚠️ Please click on the image to select points")
 
