@@ -10,8 +10,9 @@ requests>=2.31.0
 torch
 torchvision
 
-# Streamlit Components
-streamlit-drawable-canvas>=0.9.3
+# Streamlit Components - REPLACED: streamlit-drawable-canvas is archived and broken
+# streamlit-drawable-canvas>=0.9.3  # BROKEN on Streamlit Cloud
+st-clickable-images>=0.1.1  # Working alternative for image clicking
 
 # SAM (Segment Anything Model)
 git+https://github.com/facebookresearch/segment-anything.git
